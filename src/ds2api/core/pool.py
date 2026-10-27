@@ -118,6 +118,17 @@ class AccountPool:
 
         seen: set[str] = set()
         for index, account in enumerate(config.ds_core.accounts):
+            # Guard against an easy misconfiguration: pasting the email into the
+            # mobile field makes the upstream reject the whole login body with a
+            # bare 422, which reads like a serialisation bug.
+            if account.mobile and "@" in account.mobile:
+                logger.warning(
+                    "account %s: mobile looks like an email address; ignoring it "
+                    "and logging in with the email field only",
+                    (account.identifier or f"#{index}")[:3] + "***",
+                )
+                account.mobile = ""
+
             key = account.identifier or f"account-{index}"
             if key in seen:
                 logger.warning("duplicate account %s skipped", key[:3] + "***")
