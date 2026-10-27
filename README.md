@@ -2,7 +2,7 @@
 
 把 DeepSeek 网页版（chat.deepseek.com）包装成 **OpenAI 兼容 API** 的纯 Python 实现。
 
-本项目是 [`ds-free-api`](https://github.com/)（Rust，GPL-3.0-only）的移植版本，
+本项目是 [`NIyueeE/ds-free-api`](https://github.com/NIyueeE/ds-free-api)（Rust，GPL-3.0-only）的移植版本，
 协议细节、默认值、错误码均以原项目源码为准。
 
 ## 与原项目的差异
