@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ds2api"
+version = "0.1.0"
+description = "Pure-Python port of ds-free-api: OpenAI-compatible gateway for DeepSeek web chat"
+license = { text = "GPL-3.0-only" }
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.32,<1.0",
+    "pydantic>=2.9,<3",
+    "tomli-w>=1.1,<2",
+    "curl-cffi>=0.11,<0.14",
+    "wasmtime>=27,<36",
+    "tiktoken>=0.8,<1",
+    "PyJWT>=2.9,<3",
+    "bcrypt>=4.2,<6",
+    "orjson>=3.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "aiohttp>=3.10",
+]
+
+[project.scripts]
+ds2api = "ds2api.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+markers = [
+    "live: hits the real DeepSeek upstream, skipped by default",
+]

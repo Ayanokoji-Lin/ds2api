@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Runtime data (contains credentials and per-deployment state)
+data/
+cache/
+logs/
+stats.json
+stats.tmp
+config.toml
+config.toml.bak
+config.toml.tmp
+
+# Local secrets
+.env
+.env.*
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# WorkBuddy workspace metadata
+.workbuddy-ai/
