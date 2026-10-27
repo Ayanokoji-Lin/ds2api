@@ -100,6 +100,7 @@ async def test_upstream_request_shape(stack) -> None:
     assert "parent_message_id" not in body
 
     headers = completion["headers"]
+    # App identity: the x-client-* set is present, browser-only headers are not.
     for name in (
         "x-client-version",
         "x-client-platform",
@@ -107,19 +108,23 @@ async def test_upstream_request_shape(stack) -> None:
         "x-client-bundle-id",
         "x-device-id",
         "x-client-timezone-offset",
-        "sec-fetch-dest",
-        "sec-fetch-mode",
-        "sec-fetch-site",
-        "sec-ch-ua",
-        "sec-ch-ua-mobile",
-        "sec-ch-ua-platform",
         "x-ds-pow-response",
     ):
         assert name in headers, f"missing header {name}"
-    assert "origin" not in headers
-    assert "cookie" not in headers
-    assert "sec-fetch-user" not in headers
-    assert "upgrade-insecure-requests" not in headers
+    assert headers["user-agent"].startswith("DeepSeek/")
+    assert headers["x-client-platform"] == "android"
+
+    for name in (
+        "origin",
+        "cookie",
+        "sec-fetch-user",
+        "upgrade-insecure-requests",
+        "sec-ch-ua",
+        "sec-fetch-dest",
+        "sec-fetch-mode",
+        "sec-fetch-site",
+    ):
+        assert name not in headers, f"{name} must not be sent by the app identity"
     assert headers["authorization"] == "Bearer tok-1"
 
 

@@ -54,20 +54,42 @@ def account_device_uuid(device_id: str) -> str:
     return derive_device_uuid(f"ds-free-api:x-device-id:{device_id.strip()}".encode())
 
 
+#: Headers only a desktop browser sends. The native app (OkHttp) sends none of
+#: them, and mixing an Android UA with Chrome client hints is a combination no
+#: real client produces - the upstream's own notes call this out.
+_BROWSER_ONLY_HEADERS = (
+    "Sec-Ch-Ua",
+    "Sec-Ch-Ua-Mobile",
+    "Sec-Ch-Ua-Platform",
+    "Sec-Fetch-Dest",
+    "Sec-Fetch-Mode",
+    "Sec-Fetch-Site",
+    "Sec-Fetch-User",
+    "Upgrade-Insecure-Requests",
+    "Priority",
+)
+
+
 @dataclass(slots=True)
 class ClientIdentity:
     """The browser persona sent on every upstream request."""
 
     user_agent: str = DEFAULT_USER_AGENT
     client_version: str = "2.5.0"
-    client_platform: str = "web"
+    client_platform: str = "android"
     client_locale: str = "zh_CN"
     client_bundle_id: str = "com.deepseek.chat"
     device_id: str = ""
-    device_model: str = ""
+    device_model: str = "Pixel 7"
     timezone_offset: str = "28800"
     referer: str = "https://chat.deepseek.com/"
+    #: Value sent as ``os`` in the login payload. Must agree with the UA.
+    client_os: str = "android"
     extra: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def is_app(self) -> bool:
+        return self.client_platform.lower() in ("android", "ios")
 
     def headers(
         self,
@@ -94,16 +116,28 @@ class ClientIdentity:
             "Accept-Language": self.client_locale.replace("_", "-"),
             "Referer": "https://chat.deepseek.com/sign_in" if login else self.referer,
             "Accept": "*/*",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": site,
-            "Sec-Ch-Ua": SEC_CH_UA,
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            # Removed on purpose: navigation-only headers the XHR frontend never sends.
-            "Sec-Fetch-User": None,
-            "Upgrade-Insecure-Requests": None,
         }
+
+        if self.is_app:
+            # Native app shape: no client hints, no sec-fetch-*. curl_cffi's
+            # chrome profile injects them, so remove them explicitly.
+            for name in _BROWSER_ONLY_HEADERS:
+                h[name] = None
+        else:
+            h.update(
+                {
+                    "Sec-Fetch-Dest": "empty",
+                    "Sec-Fetch-Mode": "cors",
+                    "Sec-Fetch-Site": site,
+                    "Sec-Ch-Ua": SEC_CH_UA,
+                    "Sec-Ch-Ua-Mobile": "?0",
+                    "Sec-Ch-Ua-Platform": '"Windows"',
+                    # Navigation-only headers the XHR frontend never sends.
+                    "Sec-Fetch-User": None,
+                    "Upgrade-Insecure-Requests": None,
+                }
+            )
+
         h.update(self.extra)
         if token:
             h["Authorization"] = f"Bearer {token}"

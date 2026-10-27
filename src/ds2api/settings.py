@@ -26,10 +26,16 @@ DEFAULT_API_BASE = "https://chat.deepseek.com/api/v0"
 DEFAULT_WASM_URL = (
     "https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm"
 )
-DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
-)
+
+#: Identity preset. As of 2026-10 the upstream rejects ``os="web"`` on
+#: ``/users/login`` with a bare ``422 {"detail":[{"loc":"body"}]}`` - the web
+#: password-login endpoint is closed. Only ``android`` and ``ios`` are accepted,
+#: and UA / client_platform / client_os must agree, so the app identity is the
+#: default now.
+DEFAULT_USER_AGENT = "DeepSeek/2.5.0 Android/35"
+DEFAULT_CLIENT_PLATFORM = "android"
+DEFAULT_CLIENT_OS = "android"
+DEFAULT_DEVICE_MODEL = "Pixel 7"
 
 
 class ServerConfig(BaseModel):
@@ -75,13 +81,13 @@ class DsCoreConfig(BaseModel):
 
     user_agent: str = DEFAULT_USER_AGENT
     client_version: str = "2.5.0"
-    client_platform: str = "web"
+    client_platform: str = DEFAULT_CLIENT_PLATFORM
     client_locale: str = "zh_CN"
     client_bundle_id: str = "com.deepseek.chat"
     client_device_id: str = ""
-    client_device_model: str = ""
+    client_device_model: str = DEFAULT_DEVICE_MODEL
     client_timezone_offset: str = "28800"
-    client_os: str = "web"
+    client_os: str = DEFAULT_CLIENT_OS
 
     emulation: str = "chrome136"
     hif_enabled: bool = True

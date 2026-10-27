@@ -72,15 +72,38 @@ def _build_identity(config: Config, account: AccountConfig) -> ClientIdentity:
         # No per-account fingerprint: fall back to a stable per-deployment id.
         device_id = derive_device_uuid(f"ds-free-api:api-base:{core.api_base}".encode())
 
+    platform = core.client_platform
+    os_value = core.client_os
+    user_agent = core.user_agent
+    device_model = core.client_device_model
+
+    # The upstream closed web password login: os="web" now returns a bare
+    # 422 {"detail":[{"loc":"body"}]}. Downgrade to the app identity so existing
+    # configs keep working, but say so loudly.
+    if os_value.strip().lower() == "web":
+        logger.warning(
+            "client_os=\"web\" is rejected by the upstream (422); using the android "
+            "identity instead. Update config.toml: client_os/client_platform = \"android\" "
+            "and user_agent = \"DeepSeek/%s Android/35\"",
+            core.client_version,
+        )
+        os_value = "android"
+        platform = "android"
+        if user_agent.startswith("Mozilla"):
+            user_agent = f"DeepSeek/{core.client_version} Android/35"
+        if not device_model:
+            device_model = "Pixel 7"
+
     return ClientIdentity(
-        user_agent=core.user_agent,
+        user_agent=user_agent,
         client_version=core.client_version,
-        client_platform=core.client_platform,
+        client_platform=platform,
         client_locale=core.client_locale,
         client_bundle_id=core.client_bundle_id,
         device_id=device_id,
-        device_model=core.client_device_model,
+        device_model=device_model,
         timezone_offset=core.client_timezone_offset,
+        client_os=os_value,
     )
 
 
@@ -155,7 +178,7 @@ class AccountPool:
             password=cfg.password,
             area_code=cfg.area_code,
             device_id=cfg.device_id,
-            os_name=self._config.ds_core.client_os,
+            os_name=account.identity.client_os,
         )
         account.token = info.token
         try:

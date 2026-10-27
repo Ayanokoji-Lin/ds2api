@@ -66,6 +66,29 @@ description = "本地开发"
 `POST /api/v0/users/login` 的请求体，或控制台执行 `SMSdk.getDeviceId()`。
 **不能伪造**，伪造会返回 `RISK_DEVICE_DETECTED`。每个账号建议独立设备指纹。
 
+### 客户端身份：默认 App 形态
+
+上游已关闭**网页端密码登录**。`/users/login` 的 `os` 字段只接受 `android` / `ios`：
+
+| 发送值 | 结果 |
+|---|---|
+| `android` / `ios` | 200（进入业务校验） |
+| `web` | `422 {"detail":[{"loc":"body"}]}` —— 注意 `loc` 只有 `body`，不是 `body.os` |
+| `windows` / `mac` / `harmony` | `422 {"detail":[{"loc":"body.os"}]}` |
+
+所以默认身份是 Android App 形态，三个字段必须自洽：
+
+```toml
+user_agent      = "DeepSeek/2.5.0 Android/35"
+client_platform = "android"
+client_os       = "android"
+```
+
+App 形态下不会发送 `sec-ch-ua*` / `sec-fetch-*`——真实 App 用 OkHttp，没有这些头，
+Android UA 配 Chrome client hints 是任何真实客户端都不存在的组合。
+
+旧配置里若仍是 `web`，启动时会自动降级到 android 并打印一条 WARN，不必手改。
+
 ## 运行
 
 ```bash
