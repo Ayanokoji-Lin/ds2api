@@ -14,7 +14,7 @@
 | 语言/框架 | Rust / axum | Python / FastAPI |
 | TLS 指纹 | wreq（BoringSSL） | curl_cffi（`impersonate="chrome136"`） |
 | PoW | wasmtime | wasmtime-py（同一份 wasm） |
-| 管理面板 | Vite 前端 + admin API | admin API（前端待补） |
+| 管理面板 | Vite 前端 + admin API | 单文件面板（零构建）+ admin API |
 
 ### 有意偏离原实现的地方
 
@@ -26,6 +26,12 @@
 4. **删除了两个导航形态请求头** —— curl_cffi 的 `chrome136` 会加
    `Sec-Fetch-User` 和 `Upgrade-Insecure-Requests`，真实前端是 XHR 调用，不带
    这两个，必须显式传 `None` 移除。
+5. **超长上下文统一走文件回退** —— 原项目对 `expert` 模型按 75% 切块、多次请求
+   写入同一会话；这里两种模型都用「历史打包成文件上传」。`expert` 在上游已
+   disabled，保留一条无法验证的分支不划算。
+6. **修正了历史文件里的 EOS 标签大小写** —— 原项目的块解析会把
+   `<｜end▁of▁sentence｜>` 当成角色块，重建时首字母被大写为
+   `<｜End▁of▁sentence｜>`。这里保留原样，避免污染上传的历史文件。
 
 ## 安装
 
@@ -77,7 +83,8 @@ python -m ds2api -c config.toml
 | GET | `/v1/models` | 模型列表 |
 | GET | `/v1/models/{id}` | 模型详情 |
 | GET | `/health` | 健康检查 |
-| * | `/admin/api/*` | 管理接口（JWT 保护，`setup`/`login` 除外） |
+| GET | `/admin` | 管理面板 |
+| * | `/admin/api/*` | 管理接口（JWT 保护，`setup`/`login`/`setup-status` 除外） |
 
 ```bash
 curl http://127.0.0.1:22217/v1/chat/completions \
@@ -85,6 +92,22 @@ curl http://127.0.0.1:22217/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-default","messages":[{"role":"user","content":"你好"}],"stream":true}'
 ```
+
+## 管理面板
+
+浏览器打开 `http://127.0.0.1:22217/admin`，首次访问会要求设置管理密码（至少 6 位，
+bcrypt 存储）。之后用该密码登录，JWT 有效期 24 小时。
+
+三屏：
+
+- **概览** —— 账号池状态（idle/busy/error/invalid）、请求数、成功率、token 用量、
+  平均延迟、每账号配额窗口
+- **配置** —— 服务端口、CORS、API Base、TLS 拟态档位、工具协议、模型类型、会话策略、
+  配额、账号表、API Key 表；保存写回 `config.toml`（先备份为 `.bak`，注释不保留）
+- **日志** —— 最近 200 条请求记录 + 2000 条运行日志（同时落盘到 `logs/runtime.log`，
+  10MB × 3 轮转）
+
+账号与模型类型的变更需要重启进程；其余配置热更新。
 
 ### 工具调用（DSML）
 
@@ -117,7 +140,7 @@ system prompt，模型用 DSML 标记回话，网关解析后还原成标准 `to
 ## 测试
 
 ```bash
-pytest -q                 # 全部（单元 + 端到端，假上游）
+pytest -q                 # 全部 100 个（单元 + 端到端，假上游）
 pytest tests/unit -q      # 纯函数
 pytest tests/e2e -q       # 真 uvicorn + 假上游
 ```

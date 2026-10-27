@@ -47,6 +47,11 @@ def _masked_config(config: Config) -> dict:
     return data
 
 
+async def setup_status(ctx) -> JSONResponse:
+    """Public probe: lets the dashboard decide between setup and login."""
+    return JSONResponse({"password_set": bool(ctx.config.admin.password_hash)})
+
+
 async def setup(request: Request, ctx) -> JSONResponse:
     payload = await _json(request)
     config: Config = ctx.config
@@ -155,12 +160,48 @@ async def logs(request: Request, ctx) -> JSONResponse:
 async def runtime_logs(request: Request, ctx) -> JSONResponse:
     offset = int(request.query_params.get("offset", 0))
     limit = int(request.query_params.get("limit", 100))
-    entries = ctx.runtime_logs[offset : offset + limit] if ctx.runtime_logs else []
+    from . import runtime_log
+
     return JSONResponse(
-        {"total": len(ctx.runtime_logs or []), "offset": offset, "limit": limit, "logs": entries}
+        {
+            "total": runtime_log.total(),
+            "offset": offset,
+            "limit": limit,
+            "logs": runtime_log.entries(offset, limit),
+        }
     )
 
 
-async def sessions(ctx) -> JSONResponse:
-    # Upstream session listing is not implemented; the dashboard tolerates empty.
-    return JSONResponse({"sessions": [], "next_updated_at": None})
+async def sessions(request: Request, ctx) -> JSONResponse:
+    """List upstream chat sessions for the first account that has a token."""
+    pool = ctx.pool
+    endpoints = ctx.endpoints
+    if pool is None or endpoints is None or not pool.accounts:
+        return JSONResponse({"sessions": [], "next_updated_at": None})
+
+    account = next((a for a in pool.accounts if a.token), None)
+    if account is None:
+        return JSONResponse({"sessions": [], "next_updated_at": None})
+
+    cursor: float | None = None
+    raw_cursor = request.query_params.get("updated_at")
+    if raw_cursor:
+        try:
+            cursor = float(raw_cursor)
+        except ValueError:
+            raise _err(400, "updated_at must be a number") from None
+
+    try:
+        data = await endpoints.fetch_sessions(account.identity, account.token, cursor)
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError(502, f"failed to fetch sessions: {exc}", "server_error", "provider_error") from exc
+
+    if not isinstance(data, dict):
+        return JSONResponse({"sessions": [], "next_updated_at": None})
+
+    items = data.get("chat_sessions") or data.get("sessions") or []
+    cursor_data = data.get("cursor") or {}
+    next_ts = data.get("next_updated_at") or (
+        cursor_data.get("updated_at") if isinstance(cursor_data, dict) else None
+    )
+    return JSONResponse({"sessions": items, "next_updated_at": next_ts})

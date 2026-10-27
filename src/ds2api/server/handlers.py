@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 
@@ -19,6 +20,7 @@ from ..openai.request.resolver import resolve
 from ..openai.response import pipeline
 from ..openai.response.tool_parser import TagConfig
 from ..openai.types import ChatCompletionsRequest
+from . import auth
 from .errors import ApiError, from_core, not_found
 
 logger = logging.getLogger("ds2api.handlers")
@@ -47,8 +49,56 @@ async def _prepend(first: StreamEvent, rest):
         yield item
 
 
+async def _recording_stream(
+    body,
+    ctx,
+    *,
+    model: str,
+    prompt_tokens: int,
+    request_id: str,
+    api_key: str,
+    started: float,
+):
+    """Wrap the SSE body so the request is counted once the stream ends.
+
+    A client that disconnects early reaches the ``finally`` with ``success=False``,
+    which matches the Rust ``RequestTimer`` (unmarked == failure).
+    """
+    completion_tokens = 0
+    success = True
+    try:
+        async for chunk in body:
+            yield chunk
+            if b'"usage"' in chunk:
+                try:
+                    payload = json.loads(chunk[len(b"data: ") :])
+                except (ValueError, TypeError):
+                    continue
+                usage = payload.get("usage") or {}
+                value = usage.get("completion_tokens")
+                if isinstance(value, int):
+                    completion_tokens = value
+    except BaseException:
+        success = False
+        raise
+    finally:
+        if ctx.stats is not None:
+            ctx.stats.record(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                success=success,
+                request_id=request_id,
+                api_key=api_key,
+            )
+
+
 async def chat_completions(request: Request, state) -> StreamingResponse | JSONResponse:
     config = state.config
+    started = time.perf_counter()
+    request_id = (request.scope.get("state") or {}).get("request_id", "")
+    api_key = auth.extract_api_token(request) or ""
     try:
         payload = await request.json()
     except Exception as exc:  # noqa: BLE001
@@ -88,12 +138,20 @@ async def chat_completions(request: Request, state) -> StreamingResponse | JSONR
         stream = _prepend(first, events)
 
         if req.stream:
-            body = pipeline.stream_sse(
-                stream,
+            body = _recording_stream(
+                pipeline.stream_sse(
+                    stream,
+                    model=req.model,
+                    prompt_tokens=prompt_tokens,
+                    stop=stops,
+                    cfg=tag_cfg,
+                ),
+                state,
                 model=req.model,
                 prompt_tokens=prompt_tokens,
-                stop=stops,
-                cfg=tag_cfg,
+                request_id=request_id,
+                api_key=api_key,
+                started=started,
             )
             headers = {
                 "Cache-Control": "no-cache",
@@ -109,6 +167,17 @@ async def chat_completions(request: Request, state) -> StreamingResponse | JSONR
             stop=stops,
             cfg=tag_cfg,
         )
+        usage = result.get("usage") or {}
+        if state.stats is not None:
+            state.stats.record(
+                model=req.model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=int(usage.get("completion_tokens", 0)),
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                success=True,
+                request_id=request_id,
+                api_key=api_key,
+            )
         return JSONResponse(result, headers={"x-ds-account": account_id})
 
     except ApiError:

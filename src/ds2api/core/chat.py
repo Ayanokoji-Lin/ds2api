@@ -133,17 +133,30 @@ class Chat:
     # -- one attempt -------------------------------------------------------
 
     async def _once(self, account: Account, req: ChatRequest) -> AsyncIterator[StreamEvent]:
+        if self._is_oversized(req):
+            async for event in self._oversized_file(account, req):
+                yield event
+            return
+        async for event in self._send(account, req, req.prompt, ()):
+            yield event
+
+    async def _send(
+        self,
+        account: Account,
+        req: ChatRequest,
+        prompt_text: str,
+        extra_file_ids: tuple[str, ...],
+        *,
+        allow_incremental: bool = True,
+    ) -> AsyncIterator[StreamEvent]:
         session_id, parent_id, reused = await self._plan_session(account, req)
 
         # A reused session already holds the history, so only the newest user
         # message is sent, with no ChatML tags.
-        prompt_text = (
-            req.incremental_prompt
-            if reused and req.incremental_prompt is not None
-            else req.prompt
-        )
+        if allow_incremental and reused and req.incremental_prompt is not None:
+            prompt_text = req.incremental_prompt
 
-        ref_file_ids: list[str] = []
+        ref_file_ids: list[str] = list(extra_file_ids)
         for upload in req.files:
             ref_file_ids.append(await self._upload(account, upload))
 
@@ -265,6 +278,50 @@ class Chat:
                 account.session_id = None
                 account.session_parent = None
 
+    # -- oversized prompts -------------------------------------------------
+
+    def _is_oversized(self, req: ChatRequest) -> bool:
+        """True when the prompt exceeds 75% of the model's character limit."""
+        limit = self._config.limits_for(req.model_type)[2]
+        if limit <= 0:
+            return False
+        return len(req.prompt) > limit * 75 // 100
+
+    async def _oversized_file(
+        self, account: Account, req: ChatRequest
+    ) -> AsyncIterator[StreamEvent]:
+        """Send the history as an uploaded text file and keep only the tail inline.
+
+        Deviation from upstream: the Rust project chunks ``expert`` prompts across
+        several requests instead of uploading a file. ``expert`` is disabled on the
+        web backend, so both paths use the file fallback here rather than carrying
+        an untestable 300-line branch.
+        """
+        inline, history = split_history_prompt(req.prompt)
+        if not history:
+            logger.warning("prompt is oversized but has no assistant block; sending inline")
+            async for event in self._send(account, req, req.prompt, ()):
+                yield event
+            return
+
+        try:
+            file_id = await self._upload(
+                account, FileUpload("EMPTY.txt", "text/plain", history.encode())
+            )
+        except (ClientError, ProviderError) as exc:
+            logger.warning("history upload failed (%s); falling back to the inline prompt", exc)
+            async for event in self._send(account, req, req.prompt, ()):
+                yield event
+            return
+
+        logger.info(
+            "oversized prompt: %d chars total, history uploaded, inline tail is %d chars",
+            len(req.prompt),
+            len(inline),
+        )
+        async for event in self._send(account, req, inline, (file_id,), allow_incremental=False):
+            yield event
+
     # -- session planning --------------------------------------------------
 
     async def _plan_session(
@@ -337,6 +394,76 @@ class Chat:
 
 
 # -- helpers ---------------------------------------------------------------
+
+TAG_START = "<｜"
+TAG_END = "｜>"
+
+#: Tags that are markers rather than roles. The Rust parser treats these as roles
+#: and re-renders them through ``role_tag``, which capitalises the first letter and
+#: turns ``<｜end▁of▁sentence｜>`` into ``<｜End▁of▁sentence｜>``. We keep the
+#: original casing instead - a deliberate deviation, since the mangled tag ends up
+#: inside the uploaded history file.
+_MARKER_TAGS = frozenset(
+    {"end▁of▁sentence", "begin▁of▁sentence", "think", "/think", "deepseek_image"}
+)
+
+
+def _role_tag(role: str) -> str:
+    if not role:
+        return "<｜｜>"
+    return f"<｜{role[0].upper()}{role[1:]}｜>"
+
+
+def _render_block(role: str, content: str) -> str:
+    if role in _MARKER_TAGS:
+        return f"<｜{role}｜>{content}\n"
+    return f"{_role_tag(role)}{content}\n"
+
+
+def parse_native_blocks(prompt: str) -> list[tuple[str, str]]:
+    """Split a ChatML prompt into ``(role, content)`` blocks."""
+    blocks: list[tuple[str, str]] = []
+    pos = 0
+    while True:
+        start = prompt.find(TAG_START, pos)
+        if start < 0:
+            break
+        role_start = start + len(TAG_START)
+        role_end = prompt.find(TAG_END, role_start)
+        if role_end < 0:
+            break
+        role = prompt[role_start:role_end].strip().lower()
+        content_start = role_end + len(TAG_END)
+        next_tag = prompt.find(TAG_START, content_start)
+        content_end = len(prompt) if next_tag < 0 else next_tag
+        blocks.append((role, prompt[content_start:content_end].rstrip("\n")))
+        pos = content_end
+    return blocks
+
+
+def split_history_prompt(prompt: str) -> tuple[str, str]:
+    """Split into ``(inline_tail, history_file_body)``.
+
+    Mirrors ``split_history_prompt`` in ``ds_core/src/chat/request.rs``: the last
+    assistant block stays inline as the generation anchor, everything before it is
+    wrapped in the file markers the upstream parser expects.
+    """
+    blocks = parse_native_blocks(prompt)
+    index = next(
+        (i for i in range(len(blocks) - 1, -1, -1) if blocks[i][0] == "assistant"), None
+    )
+    if index is None:
+        return prompt, ""
+
+    role, content = blocks[index]
+    inline = _render_block(role, content)
+
+    parts = ["[file content end]\n\n"]
+    for block_role, block_content in blocks[:index]:
+        parts.append(_render_block(block_role, block_content))
+    parts.append("[file name]: IGNORE\n[file content begin]\n")
+    return inline, "".join(parts)
+
 
 
 def _chain_matches(cached: tuple[str, ...], incoming: tuple[str, ...]) -> bool:

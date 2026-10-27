@@ -27,6 +27,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "httpx>=0.27",
     "aiohttp>=3.10",
+    "python-multipart>=0.0.9",
 ]
 
 [project.scripts]
@@ -34,6 +35,9 @@ ds2api = "ds2api.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+ds2api = ["server/static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

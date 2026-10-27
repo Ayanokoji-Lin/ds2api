@@ -159,6 +159,20 @@ def make_app(state: FakeState) -> Starlette:
                      body=await request.json())
         return JSONResponse(envelope(None))
 
+    async def session_fetch(request: Request) -> JSONResponse:
+        state.record("/chat_session/fetch_page", headers=await headers_of(request),
+                     body=dict(request.query_params))
+        return JSONResponse(
+            envelope(
+                {
+                    "chat_sessions": [
+                        {"id": "sess-1", "title": "hello", "updated_at": 1775386361.5}
+                    ],
+                    "next_updated_at": 1775386361.5,
+                }
+            )
+        )
+
     async def pow_challenge(request: Request) -> JSONResponse:
         body = await request.json()
         state.record("/chat/create_pow_challenge", headers=await headers_of(request), body=body)
@@ -207,6 +221,7 @@ def make_app(state: FakeState) -> Starlette:
             Route("/api/v0/users/auth_token/check_device", check_device, methods=["POST"]),
             Route("/api/v0/chat_session/create", session_create, methods=["POST"]),
             Route("/api/v0/chat_session/delete", session_delete, methods=["POST"]),
+            Route("/api/v0/chat_session/fetch_page", session_fetch, methods=["GET"]),
             Route("/api/v0/chat/create_pow_challenge", pow_challenge, methods=["POST"]),
             Route("/api/v0/chat/completion", completion, methods=["POST"]),
             Route("/api/v0/chat/stop_stream", stop_stream, methods=["POST"]),

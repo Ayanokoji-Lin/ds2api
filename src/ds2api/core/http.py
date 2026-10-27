@@ -172,8 +172,17 @@ class UpstreamHttp:
         timeout: float = 120.0,
     ) -> Any:
         session = self._ensure_session()
-        files = {"file": (filename, data, content_type)}
-        response = await session.post(url, headers=headers, files=files, timeout=timeout)
+        # curl_cffi >= 0.15 wants a CurlMime object, not a dict and not `files=`.
+        from curl_cffi import CurlMime
+
+        mime = CurlMime()
+        mime.addpart(name="file", content_type=content_type, filename=filename, data=data)
+        try:
+            response = await session.post(
+                url, headers=headers, multipart=mime, timeout=timeout
+            )
+        finally:
+            mime.close()
         self._check(response)
         payload = response.json()
         return unwrap_envelope(payload)

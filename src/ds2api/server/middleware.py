@@ -106,7 +106,11 @@ def api_key_middleware(app, get_config: Callable[[], Config]):
 def admin_auth_middleware(app, get_config: Callable[[], Config]):
     """Protect ``/admin/api/*`` except setup/login with a JWT."""
 
-    open_paths = {"/admin/api/setup", "/admin/api/login"}
+    open_paths = {
+        "/admin/api/setup",
+        "/admin/api/login",
+        "/admin/api/setup-status",
+    }
 
     async def middleware(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 from ..core.chat import Chat
 from ..core.endpoints import Endpoints
@@ -18,7 +19,7 @@ from ..core.http import HTTP_VERSION_1_1, UpstreamHttp
 from ..core.pool import AccountPool
 from ..core.pow import PowSolver, download_wasm
 from ..settings import Config, data_dir
-from . import admin, handlers
+from . import admin, handlers, runtime_log
 from .auth import LoginLimiter
 from .errors import ApiError
 from .middleware import (
@@ -39,9 +40,9 @@ class Ctx:
     chat: Chat | None = None
     pool: AccountPool | None = None
     http: UpstreamHttp | None = None
+    endpoints: Endpoints | None = None
     stats: Stats | None = None
     limiter: LoginLimiter | None = None
-    runtime_logs: list | None = None
 
 
 def _load_pow(config: Config) -> PowSolver | None:
@@ -73,10 +74,11 @@ def create_app(config: Config, config_path: Path | str = "config.toml"):
 
         ctx.http = http
         ctx.pool = pool
+        ctx.endpoints = endpoints
         ctx.chat = Chat(config, pool, endpoints, pow_solver, hif)
         ctx.stats = Stats.load(data_dir() / "stats.json")
         ctx.limiter = LoginLimiter()
-        ctx.runtime_logs = []
+        runtime_log.install(data_dir(), os.environ.get("DS_LOG", "info"))
 
         logger.info("listening on %s:%s", config.server.host, config.server.port)
         try:
@@ -121,6 +123,10 @@ def create_app(config: Config, config_path: Path | str = "config.toml"):
         return await handlers.get_model(model_id, ctx)
 
     # -- admin ---------------------------------------------------------
+    @app.get("/admin/api/setup-status")
+    async def admin_setup_status():
+        return await admin.setup_status(ctx)
+
     @app.post("/admin/api/setup")
     async def admin_setup(request: Request):
         return await admin.setup(request, ctx)
@@ -162,8 +168,15 @@ def create_app(config: Config, config_path: Path | str = "config.toml"):
         return await admin.runtime_logs(request, ctx)
 
     @app.get("/admin/api/sessions")
-    async def admin_sessions():
-        return await admin.sessions(ctx)
+    async def admin_sessions(request: Request):
+        return await admin.sessions(request, ctx)
+
+    @app.get("/admin")
+    async def admin_page():
+        page = Path(__file__).resolve().parent / "static" / "admin.html"
+        if not page.exists():
+            return JSONResponse({"error": "admin.html is missing"}, status_code=500)
+        return FileResponse(page, media_type="text/html")
 
     origins = config.server.cors_origins or ["*"]
     cors = CORSMiddleware(

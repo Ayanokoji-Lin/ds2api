@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DS2Api 管理面板</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d2129;
+    --border: #262b36;
+    --text: #e6e9ef;
+    --muted: #8b93a7;
+    --accent: #4c8dff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --mono: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .hidden { display: none !important; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); padding: 7px 14px; transition: .15s;
+  }
+  button:hover { border-color: #3a4150; background: #222732; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #3d7de8; }
+  button.danger { color: var(--err); border-color: #4a2626; }
+  button.small { padding: 3px 9px; font-size: 12px; }
+  input, select, textarea {
+    font: inherit; background: #12151b; color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 10px; width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .field { margin-bottom: 14px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > .field { flex: 1 1 180px; }
+  code, .mono { font-family: var(--mono); font-size: 12.5px; }
+
+  /* auth */
+  #auth { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .auth-card {
+    width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 30px 28px;
+  }
+  .auth-card h1 { margin: 0 0 6px; font-size: 20px; }
+  .auth-card p { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
+  .auth-card .field { margin-bottom: 16px; }
+
+  /* shell */
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 14px 22px;
+    border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: .2px; }
+  header .spacer { flex: 1; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+    padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--err); }
+
+  nav { display: flex; gap: 4px; padding: 12px 22px 0; border-bottom: 1px solid var(--border); background: var(--panel); }
+  nav button {
+    border: none; background: none; color: var(--muted); border-radius: 0;
+    padding: 9px 14px; border-bottom: 2px solid transparent;
+  }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  main { padding: 22px; max-width: 1180px; margin: 0 auto; }
+  section { margin-bottom: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .card h2 { margin: 0 0 14px; font-size: 14px; font-weight: 600; color: var(--muted); letter-spacing: .3px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .stat .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .stat .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .value.ok { color: var(--ok); } .stat .value.err { color: var(--err); } .stat .value.warn { color: var(--warn); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono { font-family: var(--mono); font-size: 12px; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
+  .tag.idle { color: var(--ok); border-color: #1d3a24; background: #10231a; }
+  .tag.busy { color: var(--accent); border-color: #1d2d4a; background: #101a2b; }
+  .tag.error { color: var(--warn); border-color: #3d3218; background: #221b0e; }
+  .tag.invalid { color: var(--err); border-color: #4a2626; background: #2a1414; }
+
+  .log-box {
+    background: #0b0d11; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; max-height: 420px; overflow: auto; font-family: var(--mono); font-size: 12px;
+  }
+  .log-line { padding: 2px 0; white-space: pre-wrap; word-break: break-all; }
+  .lv-ERROR { color: var(--err); } .lv-WARNING { color: var(--warn); }
+  .lv-INFO { color: #9fb4d8; } .lv-DEBUG { color: var(--muted); }
+
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px;
+    padding: 11px 20px; font-size: 13px; box-shadow: 0 8px 28px rgba(0,0,0,.45); z-index: 100;
+  }
+  .toast.err { border-color: #4a2626; color: #ffb4ae; }
+  .toast.ok { border-color: #1d3a24; color: #9be8a8; }
+
+  .muted { color: var(--muted); }
+  .flex-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; font-size: 13px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; }
+  .empty { color: var(--muted); font-size: 13px; padding: 18px 0; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ========== auth ========== -->
+<div id="auth">
+  <form class="auth-card" id="auth-form">
+    <h1>DS2Api</h1>
+    <p id="auth-hint">正在检查…</p>
+    <div class="field">
+      <label for="password" id="pw-label">管理密码</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+    </div>
+    <div class="field hidden" id="confirm-wrap">
+      <label for="confirm">确认密码</label>
+      <input type="password" id="confirm" autocomplete="new-password">
+    </div>
+    <button class="primary" style="width:100%" id="auth-submit" type="submit">登录</button>
+  </form>
+</div>
+
+<!-- ========== app ========== -->
+<div id="app" class="hidden">
+  <header>
+    <h1>DS2Api</h1>
+    <span class="pill"><span class="dot" id="health-dot"></span><span id="health-text">…</span></span>
+    <span class="spacer"></span>
+    <button class="small" id="refresh">刷新</button>
+    <button class="small danger" id="logout">登出</button>
+  </header>
+
+  <nav>
+    <button data-tab="overview" class="active">概览</button>
+    <button data-tab="config">配置</button>
+    <button data-tab="logs">日志</button>
+  </nav>
+
+  <main>
+    <!-- overview -->
+    <div id="tab-overview">
+      <section class="card">
+        <h2>账号池</h2>
+        <div class="stats" id="account-stats"></div>
+      </section>
+      <section class="card">
+        <h2>请求统计</h2>
+        <div class="stats" id="request-stats"></div>
+      </section>
+      <section class="card">
+        <h2>账号详情</h2>
+        <div id="accounts-table"></div>
+      </section>
+    </div>
+
+    <!-- config -->
+    <div id="tab-config" class="hidden">
+      <section class="card">
+        <div class="flex-between">
+          <h2 style="margin:0">服务</h2>
+        </div>
+        <div class="row">
+          <div class="field"><label>监听地址</label><input id="cfg-host"></div>
+          <div class="field"><label>端口</label><input id="cfg-port" type="number"></div>
+          <div class="field"><label>CORS Origins（逗号分隔）</label><input id="cfg-cors"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>上游与模型</h2>
+        <div class="row">
+          <div class="field"><label>API Base</label><input id="cfg-api-base"></div>
+          <div class="field"><label>TLS 拟态</label>
+            <select id="cfg-emulation">
+              <option value="chrome136">chrome136</option>
+              <option value="chrome133a">chrome133a</option>
+              <option value="chrome131">chrome131</option>
+              <option value="chrome124">chrome124</option>
+              <option value="chrome120">chrome120</option>
+            </select>
+          </div>
+          <div class="field"><label>工具调用协议</label>
+            <select id="cfg-tool-protocol">
+              <option value="dsml">dsml（V4+ 原生）</option>
+              <option value="legacy">legacy（旧标签）</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label>模型类型（逗号分隔）</label><input id="cfg-model-types"></div>
+          <div class="field"><label>会话策略</label>
+            <select id="cfg-session-policy">
+              <option value="reuse">reuse</option>
+              <option value="per_request">per_request</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label>每账号每小时配额（0=不限）</label><input id="cfg-quota" type="number"></div>
+          <div class="field"><label>会话空闲回收（秒）</label><input id="cfg-idle" type="number"></div>
+          <div class="field"><label>HIF 风控令牌</label>
+            <select id="cfg-hif"><option value="true">开启</option><option value="false">关闭</option></select>
+          </div>
+          <div class="field"><label>默认联网搜索</label>
+            <select id="cfg-search"><option value="false">关闭</option><option value="true">开启</option></select>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="flex-between">
+          <h2 style="margin:0">账号</h2>
+          <button class="small" id="add-account">添加账号</button>
+        </div>
+        <div id="accounts-editor"></div>
+        <p class="muted" style="font-size:12px;margin:10px 0 0">
+          密码留空表示保留原值。device_id 必须是从浏览器复制的真实数美指纹，伪造会被上游拒绝。
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="flex-between">
+          <h2 style="margin:0">API Keys</h2>
+          <button class="small" id="add-key">添加 Key</button>
+        </div>
+        <div id="keys-editor"></div>
+      </section>
+
+      <section>
+        <button class="primary" id="save-config">保存配置</button>
+        <span class="muted" style="font-size:12px;margin-left:12px">账号与模型变更需重启进程后生效</span>
+      </section>
+    </div>
+
+    <!-- logs -->
+    <div id="tab-logs" class="hidden">
+      <section class="card">
+        <div class="flex-between">
+          <h2 style="margin:0">最近请求</h2>
+          <button class="small" id="reload-request-logs">刷新</button>
+        </div>
+        <div id="request-logs"></div>
+      </section>
+      <section class="card">
+        <div class="flex-between">
+          <h2 style="margin:0">运行日志</h2>
+          <button class="small" id="reload-runtime-logs">刷新</button>
+        </div>
+        <div class="log-box" id="runtime-logs"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+const TOKEN_KEY = "ds2api_admin_token";
+const state = {
+  token: sessionStorage.getItem(TOKEN_KEY) || "",
+  mode: "login",
+  config: null,
+  accounts: [],
+  keys: [],
+  timer: null,
+};
+
+const $ = (sel) => document.querySelector(sel);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[c]));
+
+function toast(message, kind = "") {
+  const el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
+
+async function api(path, options = {}) {
+  const headers = Object.assign({}, options.headers || {});
+  if (state.token) headers["Authorization"] = "Bearer " + state.token;
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, Object.assign({}, options, { headers }));
+  if (response.status === 401 && state.token) {
+    logout();
+    throw new Error("登录已失效，请重新登录");
+  }
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+  if (!response.ok) {
+    const message = (data && (data.error?.message || data.error)) || text || response.statusText;
+    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+  }
+  return data;
+}
+
+/* ---------- auth ---------- */
+
+async function detectMode() {
+  try {
+    const info = await api("/admin/api/setup-status");
+    state.mode = info.password_set ? "login" : "setup";
+  } catch (_) {
+    state.mode = "login";
+  }
+  const isSetup = state.mode === "setup";
+  $("#auth-hint").textContent = isSetup ? "首次使用，请设置管理密码" : "请输入管理密码";
+  $("#auth-submit").textContent = isSetup ? "初始化" : "登录";
+  $("#pw-label").textContent = isSetup ? "设置密码（至少 6 位）" : "管理密码";
+  $("#confirm-wrap").classList.toggle("hidden", !isSetup);
+  $("#password").autocomplete = isSetup ? "new-password" : "current-password";
+}
+
+$("#auth-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const password = $("#password").value;
+  const isSetup = state.mode === "setup";
+  if (isSetup && password !== $("#confirm").value) {
+    toast("两次输入的密码不一致", "err");
+    return;
+  }
+  try {
+    const path = isSetup ? "/admin/api/setup" : "/admin/api/login";
+    const data = await api(path, { method: "POST", body: JSON.stringify({ password }) });
+    state.token = data.token;
+    sessionStorage.setItem(TOKEN_KEY, data.token);
+    enterApp();
+  } catch (error) {
+    toast(error.message, "err");
+  }
+});
+
+function logout() {
+  state.token = "";
+  sessionStorage.removeItem(TOKEN_KEY);
+  if (state.timer) clearInterval(state.timer);
+  state.timer = null;
+  $("#app").classList.add("hidden");
+  $("#auth").classList.remove("hidden");
+  $("#password").value = "";
+  $("#confirm").value = "";
+  detectMode();
+}
+
+$("#logout").addEventListener("click", logout);
+
+/* ---------- shell ---------- */
+
+function enterApp() {
+  $("#auth").classList.add("hidden");
+  $("#app").classList.remove("hidden");
+  refreshAll();
+  if (state.timer) clearInterval(state.timer);
+  state.timer = setInterval(() => {
+    if (!$("#tab-overview").classList.contains("hidden")) refreshOverview();
+  }, 10000);
+}
+
+document.querySelectorAll("nav button").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b === button));
+    const tab = button.dataset.tab;
+    ["overview", "config", "logs"].forEach((name) => {
+      $("#tab-" + name).classList.toggle("hidden", name !== tab);
+    });
+    if (tab === "overview") refreshOverview();
+    if (tab === "config") loadConfig();
+    if (tab === "logs") { loadRequestLogs(); loadRuntimeLogs(); }
+  });
+});
+
+$("#refresh").addEventListener("click", refreshAll);
+$("#reload-request-logs").addEventListener("click", loadRequestLogs);
+$("#reload-runtime-logs").addEventListener("click", loadRuntimeLogs);
+
+async function refreshAll() {
+  await Promise.allSettled([refreshOverview(), loadConfig()]);
+}
+
+/* ---------- overview ---------- */
+
+function statCard(label, value, cls = "") {
+  return `<div class="stat"><div class="label">${esc(label)}</div>
+    <div class="value ${cls}">${esc(value)}</div></div>`;
+}
+
+async function refreshOverview() {
+  try {
+    const [status, stats, accounts] = await Promise.all([
+      api("/admin/api/status"),
+      api("/admin/api/stats"),
+      api("/admin/api/account-statuses-detailed"),
+    ]);
+
+    const total = status.accounts || 0;
+    const healthy = (status.idle || 0) + (status.busy || 0);
+    $("#health-dot").className = "dot " + (healthy > 0 ? "ok" : (total > 0 ? "err" : "warn"));
+    $("#health-text").textContent = total === 0
+      ? "未配置账号"
+      : `${healthy}/${total} 可用`;
+
+    $("#account-stats").innerHTML = [
+      statCard("账号总数", total),
+      statCard("空闲", status.idle || 0, "ok"),
+      statCard("使用中", status.busy || 0),
+      statCard("错误", status.error || 0, "warn"),
+      statCard("失效", status.invalid || 0, "err"),
+    ].join("");
+
+    const successRate = stats.total_requests
+      ? Math.round((stats.success_requests / stats.total_requests) * 100) + "%"
+      : "—";
+    $("#request-stats").innerHTML = [
+      statCard("总请求", stats.total_requests || 0),
+      statCard("成功率", successRate, "ok"),
+      statCard("失败", stats.failed_requests || 0, "err"),
+      statCard("Prompt Tokens", (stats.total_prompt_tokens || 0).toLocaleString()),
+      statCard("Completion Tokens", (stats.total_completion_tokens || 0).toLocaleString()),
+      statCard("平均延迟", (stats.avg_latency_ms || 0) + " ms"),
+    ].join("");
+
+    const list = accounts.accounts || [];
+    if (!list.length) {
+      $("#accounts-table").innerHTML = '<div class="empty">还没有配置账号</div>';
+    } else {
+      const rows = list.map((item) => `
+        <tr>
+          <td class="mono">${esc(item.id)}</td>
+          <td><span class="tag ${esc(item.state)}">${esc(item.state)}</span></td>
+          <td>${esc(item.requests_in_window)}${item.quota ? " / " + esc(item.quota) : ""}</td>
+          <td>${esc(item.error_count)}</td>
+          <td>${item.has_session ? "是" : "—"}</td>
+        </tr>`).join("");
+      $("#accounts-table").innerHTML = `<table>
+        <thead><tr><th>账号</th><th>状态</th><th>本窗口请求</th><th>连续错误</th><th>活跃会话</th></tr></thead>
+        <tbody>${rows}</tbody></table>`;
+    }
+  } catch (error) {
+    toast(error.message, "err");
+  }
+}
+
+/* ---------- config ---------- */
+
+async function loadConfig() {
+  try {
+    const config = await api("/admin/api/config");
+    state.config = config;
+    state.accounts = (config.ds_core.accounts || []).map((a) => Object.assign({}, a));
+    state.keys = (config.api_keys || []).map((k) => Object.assign({}, k));
+    renderConfig();
+  } catch (error) {
+    toast(error.message, "err");
+  }
+}
+
+function renderConfig() {
+  const c = state.config;
+  if (!c) return;
+  $("#cfg-host").value = c.server.host || "";
+  $("#cfg-port").value = c.server.port || 0;
+  $("#cfg-cors").value = (c.server.cors_origins || []).join(", ");
+  $("#cfg-api-base").value = c.ds_core.api_base || "";
+  $("#cfg-emulation").value = c.ds_core.emulation || "chrome136";
+  $("#cfg-tool-protocol").value = c.ds_core.tool_protocol || "dsml";
+  $("#cfg-model-types").value = (c.ds_core.model_types || []).join(", ");
+  $("#cfg-session-policy").value = c.ds_core.session_policy || "reuse";
+  $("#cfg-quota").value = c.ds_core.hourly_request_quota ?? 60;
+  $("#cfg-idle").value = c.ds_core.session_idle_secs ?? 900;
+  $("#cfg-hif").value = String(c.ds_core.hif_enabled !== false);
+  $("#cfg-search").value = String(c.ds_core.default_search_enabled === true);
+  renderAccountsEditor();
+  renderKeysEditor();
+}
+
+function renderAccountsEditor() {
+  if (!state.accounts.length) {
+    $("#accounts-editor").innerHTML = '<div class="empty">还没有账号</div>';
+    return;
+  }
+  const rows = state.accounts.map((account, index) => `
+    <tr>
+      <td><input data-acc="${index}" data-field="email" value="${esc(account.email || "")}" placeholder="email"></td>
+      <td><input data-acc="${index}" data-field="mobile" value="${esc(account.mobile || "")}" placeholder="mobile"></td>
+      <td><input data-acc="${index}" data-field="password" type="password" placeholder="留空保留"></td>
+      <td><input data-acc="${index}" data-field="device_id" value="${esc(account.device_id || "")}" placeholder="device_id"></td>
+      <td><button class="small danger" data-remove-acc="${index}">删除</button></td>
+    </tr>`).join("");
+  $("#accounts-editor").innerHTML = `<table>
+    <thead><tr><th>Email</th><th>Mobile</th><th>密码</th><th>device_id</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+
+  $("#accounts-editor").querySelectorAll("[data-acc]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const index = Number(input.dataset.acc);
+      state.accounts[index][input.dataset.field] = input.value;
+    });
+  });
+  $("#accounts-editor").querySelectorAll("[data-remove-acc]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.accounts.splice(Number(button.dataset.removeAcc), 1);
+      renderAccountsEditor();
+    });
+  });
+}
+
+function renderKeysEditor() {
+  if (!state.keys.length) {
+    $("#keys-editor").innerHTML = '<div class="empty">还没有 API Key，/v1 请求会全部返回 401</div>';
+    return;
+  }
+  const rows = state.keys.map((entry, index) => `
+    <tr>
+      <td><input data-key="${index}" data-field="key" value="${esc(entry.key || "")}" placeholder="sk-..."></td>
+      <td><input data-key="${index}" data-field="description" value="${esc(entry.description || "")}" placeholder="说明"></td>
+      <td><button class="small danger" data-remove-key="${index}">删除</button></td>
+    </tr>`).join("");
+  $("#keys-editor").innerHTML = `<table>
+    <thead><tr><th>Key</th><th>说明</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+
+  $("#keys-editor").querySelectorAll("[data-key]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const index = Number(input.dataset.key);
+      state.keys[index][input.dataset.field] = input.value;
+    });
+  });
+  $("#keys-editor").querySelectorAll("[data-remove-key]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.keys.splice(Number(button.dataset.removeKey), 1);
+      renderKeysEditor();
+    });
+  });
+}
+
+$("#add-account").addEventListener("click", () => {
+  state.accounts.push({ email: "", mobile: "", area_code: "", password: "", device_id: "" });
+  renderAccountsEditor();
+});
+
+$("#add-key").addEventListener("click", () => {
+  state.keys.push({ key: "", description: "" });
+  renderKeysEditor();
+});
+
+function alignLimits(core, modelTypes) {
+  const fill = (list, fallback) => {
+    const out = modelTypes.map((_, index) => (Array.isArray(list) && list[index] !== undefined ? list[index] : fallback));
+    return out;
+  };
+  core.max_input_tokens = fill(core.max_input_tokens, 1048576);
+  core.max_output_tokens = fill(core.max_output_tokens, 384000);
+  core.input_character_limits = fill(core.input_character_limits, 2621440);
+  if (Array.isArray(core.model_aliases) && core.model_aliases.length) {
+    core.model_aliases = modelTypes.map((_, index) => core.model_aliases[index] || "");
+  }
+  return core;
+}
+
+$("#save-config").addEventListener("click", async () => {
+  if (!state.config) return;
+  const next = JSON.parse(JSON.stringify(state.config));
+
+  next.server.host = $("#cfg-host").value.trim();
+  next.server.port = Number($("#cfg-port").value) || 0;
+  next.server.cors_origins = $("#cfg-cors").value.split(",").map((s) => s.trim()).filter(Boolean);
+
+  const core = next.ds_core;
+  core.api_base = $("#cfg-api-base").value.trim();
+  core.emulation = $("#cfg-emulation").value;
+  core.tool_protocol = $("#cfg-tool-protocol").value;
+  core.session_policy = $("#cfg-session-policy").value;
+  core.hourly_request_quota = Number($("#cfg-quota").value) || 0;
+  core.session_idle_secs = Number($("#cfg-idle").value) || 0;
+  core.hif_enabled = $("#cfg-hif").value === "true";
+  core.default_search_enabled = $("#cfg-search").value === "true";
+
+  const modelTypes = $("#cfg-model-types").value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!modelTypes.length) {
+    toast("模型类型不能为空", "err");
+    return;
+  }
+  core.model_types = modelTypes;
+  alignLimits(core, modelTypes);
+
+  core.accounts = state.accounts.map((account) => ({
+    email: account.email || "",
+    mobile: account.mobile || "",
+    area_code: account.area_code || "",
+    password: account.password || "",
+    device_id: account.device_id || "",
+  }));
+  next.api_keys = state.keys
+    .filter((entry) => entry.key)
+    .map((entry) => ({ key: entry.key, description: entry.description || "" }));
+
+  try {
+    const saved = await api("/admin/api/config", { method: "PUT", body: JSON.stringify(next) });
+    state.config = saved;
+    state.accounts = (saved.ds_core.accounts || []).map((a) => Object.assign({}, a));
+    state.keys = (saved.api_keys || []).map((k) => Object.assign({}, k));
+    renderConfig();
+    toast("配置已保存", "ok");
+  } catch (error) {
+    toast(error.message, "err");
+  }
+});
+
+/* ---------- logs ---------- */
+
+async function loadRequestLogs() {
+  try {
+    const data = await api("/admin/api/logs?limit=50");
+    const logs = data.logs || [];
+    if (!logs.length) {
+      $("#request-logs").innerHTML = '<div class="empty">还没有请求记录</div>';
+      return;
+    }
+    const rows = logs.map((entry) => `
+      <tr>
+        <td class="mono">${esc(new Date(entry.timestamp * 1000).toLocaleTimeString())}</td>
+        <td class="mono">${esc(entry.request_id)}</td>
+        <td>${esc(entry.model)}</td>
+        <td>${esc(entry.prompt_tokens)} / ${esc(entry.completion_tokens)}</td>
+        <td>${esc(entry.latency_ms)} ms</td>
+        <td>${entry.success ? '<span class="tag idle">ok</span>' : '<span class="tag invalid">fail</span>'}</td>
+      </tr>`).join("");
+    $("#request-logs").innerHTML = `<table>
+      <thead><tr><th>时间</th><th>Request ID</th><th>模型</th><th>Tokens</th><th>延迟</th><th>结果</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  } catch (error) {
+    toast(error.message, "err");
+  }
+}
+
+async function loadRuntimeLogs() {
+  try {
+    const data = await api("/admin/api/runtime-logs?limit=200");
+    const logs = data.logs || [];
+    if (!logs.length) {
+      $("#runtime-logs").innerHTML = '<div class="empty">暂无运行日志</div>';
+      return;
+    }
+    $("#runtime-logs").innerHTML = logs.map((entry) => `
+      <div class="log-line lv-${esc(entry.level)}">[${esc(entry.timestamp)} ${esc(entry.level)} ${esc(entry.target)}] ${esc(entry.message)}</div>
+    `).join("");
+  } catch (error) {
+    toast(error.message, "err");
+  }
+}
+
+/* ---------- boot ---------- */
+
+(async function boot() {
+  if (state.token) {
+    try {
+      await api("/admin/api/status");
+      enterApp();
+      return;
+    } catch (_) {
+      state.token = "";
+      sessionStorage.removeItem(TOKEN_KEY);
+    }
+  }
+  detectMode();
+})();
+</script>
+</body>
+</html>
